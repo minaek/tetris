@@ -1,6 +1,10 @@
 # Rohit Bakshi (rhb255) and Minae Kwon
+# Tetromino (a Tetris clone)
+# By Al Sweigart al@inventwithpython.com
+# http://inventwithpython.com/pygame
+# Released under a "Simplified BSD" license
 
-import random, time, pygame, sys, ai
+import random, time, pygame, sys, copy, math
 import numpy as np
 from pygame.locals import *
 
@@ -166,7 +170,8 @@ BLOCK_COLORS = {'S': 0,
                 'O': 5,
                 'T': 6}
 
-def main():
+
+def fitness(weightVector):
     global FPSCLOCK, DISPLAYSURF, BASICFONT, BIGFONT
     pygame.init()
     FPSCLOCK = pygame.time.Clock()
@@ -175,20 +180,23 @@ def main():
     BIGFONT = pygame.font.Font('freesansbold.ttf', 100)
     pygame.display.set_caption('Tetromino')
 
-    showTextScreen('Tetromino')
-    while True: # game loop
-        # if random.randint(0, 1) == 0:
-        #     pygame.mixer.music.load('tetrisb.mid')
-        # else:
-        #     pygame.mixer.music.load('tetrisc.mid')
-        # pygame.mixer.music.play(-1, 0.0)
-        #runGame()
-        runGameAi()
-        # pygame.mixer.music.stop()
-        showTextScreen('Game Over')
+    #fitness function
+    score = 0
+    for i in range(0,3):
+        score = score + runGame(weightVector)
+    print "OVERALL SCORE: " + str(score)
+    return score
 
 
-def runGameAi():
+def printBoard(board):
+    for i in range(BOARDHEIGHT):
+        row = []
+        for j in range (BOARDWIDTH):
+            row.append(board[j][i])
+        print('\t'.join(map(str,row)))
+score = 0
+
+def runGame(weightVector):
     # setup variables for the start of the game
     board = getBlankBoard()
     lastMoveDownTime = time.time()
@@ -199,88 +207,34 @@ def runGameAi():
     movingRight = False
     score = 0
     level, fallFreq = calculateLevelAndFallFreq(score)
-
     fallingPiece = getNewPiece()
     nextPiece = getNewPiece()
-
     while True: # game loop
         if fallingPiece == None:
             # No falling piece in play, so start a new piece at the top
             fallingPiece = nextPiece
             nextPiece = getNewPiece()
-            lastFallTime = time.time() # reset lastFallTime
 
             if not isValidPosition(board, fallingPiece):
-                return # can't fit a new piece on the board, so game over
+                print "parital score: " + str(score)
+                return score # can't fit a new piece on the board, so game over
 
-        #starting actions
-        action = ai.aiRand()
-        # moving the piece sideways
-        if (action == "LEFT") and isValidPosition(board, fallingPiece, adjX=-1):
-            fallingPiece['x'] -= 1
-            movingLeft = True
-            movingRight = False
-            lastMoveSidewaysTime = time.time()
+        checkForQuit()
+        boardList = generateBoardPositions(board, fallingPiece)
 
-        elif (action == "RIGHT") and isValidPosition(board, fallingPiece, adjX=1):
-            fallingPiece['x'] += 1
-            movingRight = True
-            movingLeft = False
-            lastMoveSidewaysTime = time.time()
+        bestMove = None
+        bestValue = -float("inf")
+        for x in boardList:
+            #currentValue = evaluateBoard(x, -0.510066, 0.760666, -0.35663, -0.184483)
+            currentValue = evaluateBoard(x, weightVector)
+            if currentValue > bestValue:
+                bestValue =  currentValue
+                bestMove = x
 
-        # rotating the piece (if there is room to rotate)
-        elif (action == "UP"):
-            fallingPiece['rotation'] = (fallingPiece['rotation'] + 1) % len(PIECES[fallingPiece['shape']])
-            if not isValidPosition(board, fallingPiece):
-                fallingPiece['rotation'] = (fallingPiece['rotation'] - 1) % len(PIECES[fallingPiece['shape']])
-        elif (action == "Q"): # rotate the other direction
-            fallingPiece['rotation'] = (fallingPiece['rotation'] - 1) % len(PIECES[fallingPiece['shape']])
-            if not isValidPosition(board, fallingPiece):
-                fallingPiece['rotation'] = (fallingPiece['rotation'] + 1) % len(PIECES[fallingPiece['shape']])
-
-        # making the piece fall faster with the down key
-        elif (action == "DOWN"):
-            movingDown = True
-            if isValidPosition(board, fallingPiece, adjY=1):
-                fallingPiece['y'] += 1
-            lastMoveDownTime = time.time()
-
-        # move the current piece all the way down
-        elif action == "SPACE":
-            movingDown = False
-            movingLeft = False
-            movingRight = False
-            for i in range(1, BOARDHEIGHT):
-                if not isValidPosition(board, fallingPiece, adjY=i):
-                    break
-            fallingPiece['y'] += i - 1
-
-        # handle moving the piece because of user input
-        if (movingLeft or movingRight) and time.time() - lastMoveSidewaysTime > MOVESIDEWAYSFREQ:
-            if movingLeft and isValidPosition(board, fallingPiece, adjX=-1):
-                fallingPiece['x'] -= 1
-            elif movingRight and isValidPosition(board, fallingPiece, adjX=1):
-                fallingPiece['x'] += 1
-            lastMoveSidewaysTime = time.time()
-
-        if movingDown and time.time() - lastMoveDownTime > MOVEDOWNFREQ and isValidPosition(board, fallingPiece, adjY=1):
-            fallingPiece['y'] += 1
-            lastMoveDownTime = time.time()
-
-        # let the piece fall if it is time to fall
-        if time.time() - lastFallTime > fallFreq:
-            # see if the piece has landed
-            if not isValidPosition(board, fallingPiece, adjY=1):
-                # falling piece has landed, set it on the board
-                addToBoard(board, fallingPiece)
-                #print calculateCompleteLines(board)
-                score += removeCompleteLines(board)
-                level, fallFreq = calculateLevelAndFallFreq(score)
-                fallingPiece = None
-            else:
-                # piece did not land, just move the piece down
-                fallingPiece['y'] += 1
-                lastFallTime = time.time()
+        board = bestMove
+        score = score + removeCompleteLines(board)
+        level, fallFreq = calculateLevelAndFallFreq(score)
+        fallingPiece = None
 
         # drawing everything on the screen
         DISPLAYSURF.fill(BGCOLOR)
@@ -292,10 +246,7 @@ def runGameAi():
 
         pygame.display.update()
         FPSCLOCK.tick(FPS)
-        #print board
-        #print calculateAggregateHeight(board)
-        #print calculateHoles(board)
-        # print calculateBumpiness(board)
+    print score
 
 def makeTextObjs(text, font, color):
     surf = font.render(text, True, color)
@@ -311,12 +262,9 @@ def checkForKeyPress():
     # Go through event queue looking for a KEYUP event.
     # Grab KEYDOWN events to remove them from the event queue.
     checkForQuit()
-
-    for event in pygame.event.get([KEYDOWN, KEYUP]):
-        if event.type == KEYDOWN:
-            continue
-        return event.key
-    return None
+    # for i in range(0,5):
+    #     pass
+    return K_UP
 
 
 def showTextScreen(text):
@@ -358,6 +306,7 @@ def calculateLevelAndFallFreq(score):
     fallFreq = 0.27 - (level * 0.02)
     return level, fallFreq
 
+
 def getNewPiece():
     # return a random new piece in a random rotation and color
     shape = random.choice(list(PIECES.keys()))
@@ -366,7 +315,6 @@ def getNewPiece():
                 'x': int(BOARDWIDTH / 2) - int(TEMPLATEWIDTH / 2),
                 'y': -2, # start it above the board (i.e. less than 0)
                 'color': BLOCK_COLORS[shape]}
-                # 'color': random.randint(0, len(COLORS)-1)}
     return newPiece
 
 
@@ -376,6 +324,9 @@ def addToBoard(board, piece):
         for y in range(TEMPLATEHEIGHT):
             if PIECES[piece['shape']][piece['rotation']][y][x] != BLANK:
                 board[x + piece['x']][y + piece['y']] = piece['color']
+                if x + piece['x'] < 0 or y + piece['y'] < 0:
+                    return False
+    return True
 
 
 def getBlankBoard():
@@ -383,12 +334,12 @@ def getBlankBoard():
     board = []
     for i in range(BOARDWIDTH):
         board.append([BLANK] * BOARDHEIGHT)
-    #print board
     return board
 
 
 def isOnBoard(x, y):
     return x >= 0 and x < BOARDWIDTH and y < BOARDHEIGHT
+
 
 def isValidPosition(board, piece, adjX=0, adjY=0):
     # Return True if the piece is within the board and not colliding
@@ -501,7 +452,288 @@ def drawNextPiece(piece):
     drawPiece(piece, pixelx=WINDOWWIDTH-120, pixely=100)
 
 
+#--------------------------------------AI Functions------------------------------------------------------------------
+def evaluateBoard(board, weightVector):
+    a = weightVector[0]
+    b = weightVector[1]
+    c = weightVector[2]
+    d = weightVector[3]
+    return a*calculateAggregateHeight(board) + b*calculateCompleteLines(board) + c*calculateHoles(board) + d*calculateBumpiness(board)
+
+#https://codemyroad.wordpress.com/2013/04/14/tetris-ai-the-near-perfect-player/
+def calculateAggregateHeight(board):
+    totalHeight = 0
+    for x in range(BOARDWIDTH):
+        column = board[x]   #starting from left
+        temp = 0
+        for y in range(len(column)):
+            if(column[y] != '.'):
+                temp = len(column) - y
+                break
+        totalHeight += temp
+    return totalHeight
+
+def calculateCompleteLines(board):
+    totalCompleteLines = 0
+    for y in range(BOARDHEIGHT):
+        if(isCompleteLine(board,y)):
+            totalCompleteLines += 1
+    return totalCompleteLines
+
+def calculateHoles(board):
+    totalHoles = 0
+    for x in range(BOARDWIDTH):
+        column = board[x]   #starting from left
+        temp = 0
+        firstblock = False
+        for y in range(len(column)):
+            if(column[y] != '.'):
+                firstblock = True
+            if(firstblock and column[y] == '.'):
+                temp+=1
+        totalHoles += temp
+    return totalHoles
+
+def calculateBumpiness(board):
+    heightList = []
+    for x in range(BOARDWIDTH):
+        column = board[x]   #starting from left
+        temp = 0
+        for y in range(len(column)):
+            if(column[y] != '.'):
+                temp = len(column) - y
+                break
+        heightList.append(temp)
+    bumpiness = 0
+    for z in range(len(heightList)-1):
+        temp = abs(heightList[z] - heightList[z+1])
+        bumpiness += temp
+    return bumpiness
+
+#https://luckytoilet.wordpress.com/2011/05/27/coding-a-tetris-ai-using-a-genetic-algorithm/
+def calculateBlockades(board):
+    totalBlockades = 0
+    for x in range(BOARDWIDTH):
+        column = board[x]
+        temp = 0
+        firstblock = False
+        emptyblock = False
+        for y in range(len(column)):
+            if(column[y] != '.'):
+                firstblock = True
+            if(firstblock and column[y] == '.'):
+                temp+=1
+                emptyblock = True
+            if(firstblock and emptyblock and column[y] == '.'):
+                emptyblock = True
+            if(firstblock and emptyblock and column[y] != '.'):
+                temp+=1
+                emptyblock = False
+        totalBlockades += temp
+    return totalBlockades
+
+# true if the piece is within the board
+def withinBoard(currentPiece, adjX=0, adjY=0):
+    for x in range(TEMPLATEWIDTH):
+        for y in range(TEMPLATEHEIGHT):
+            notOnBoard = y + currentPiece['y'] + adjY < 0
+            if notOnBoard or PIECES[currentPiece['shape']][currentPiece['rotation']][y][x] == BLANK:
+                continue
+            if not isOnBoard(x + currentPiece['x'] + adjX, y + currentPiece['y'] + adjY):
+                return False
+    return True
+
+def positionPiece(board, currentPiece):
+        i = 1
+        while isValidPosition(board, currentPiece, adjY=i):
+            i+=1
+        currentPiece['y'] += i-1
+
+#
+def generateBoardPositions(board, currentPiece):
+
+    boardList = []
+
+    numberRotations = len(PIECES[currentPiece['shape']])
+    currentRotatedPiece = copy.copy(currentPiece)
+
+    for i in range(numberRotations):
+        currentRotatedPiece['rotation'] = (currentRotatedPiece['rotation'] + 1) % len(PIECES[currentRotatedPiece['shape']])
+
+        xshiftAmount = 0
+        while True:
+            if not withinBoard(currentRotatedPiece, adjX = xshiftAmount) and xshiftAmount > 0:
+                break
+            currentPieceShift = copy.deepcopy(currentRotatedPiece)
+            currentPieceShift['x'] += xshiftAmount
+            if isValidPosition(board, currentPieceShift):
+                positionPiece(board, currentPieceShift)
+
+                currBoard = copy.deepcopy(board)
+                if addToBoard(currBoard, currentPieceShift):
+                    boardList.append(currBoard)
+            # left first
+            if xshiftAmount <= 0:
+                xshiftAmount -= 1
+            else:
+                xshiftAmount += 1
+
+            if not withinBoard(currentRotatedPiece, adjX = xshiftAmount) and xshiftAmount <= 0:
+                xshiftAmount = 1
+
+    return boardList
+
+def printBoard(board):
+    for i in range(BOARDHEIGHT):
+        row = []
+        for j in range (BOARDWIDTH):
+            row.append(board[j][i])
+
+        print('\t'.join(map(str,row)))
+
+###GENETIC###:
+def genWeights ():
+  height = random.uniform(-1.,1.)
+  complete = random.uniform(-1.,1.)
+  holes = random.uniform(-1.,1.)
+  bump = random.uniform(-1.,1.)
+  return np.array([height,complete,holes,bump])
+  #print np.array([height,complete,holes,bump])
+
+#creates a population of weights of size s
+def makePopulation (s):
+  population = np.empty([s,4])
+  for i in range(0,s):
+    population[i] = genWeights()
+  return population
+
+#parents are selected for reproduction. We select the two fittest individuals
+#for 10% of the population until our new offsprings produced reaches 30%
+#of the population size
+def tournamentSelection(pop, fitnessLst):
+    popSize = len(pop) #number of weight vectors
+    print "popSIze:" + str(popSize)
+    tenPercent = round(popSize*0.1,0)
+    print "tenperc:" + str(tenPercent)
+
+    thirtyPercent = round(popSize*0.3,0)
+    # print "thirtyperc::" + str(thirtyPercent)
+
+    potentialParents = np.zeros(tenPercent)
+    # print "potential parents: "
+    # print potentialParents
+    offspring = []
+    # print "offspring "
+    # print offspring
+
+    while (len(offspring)<thirtyPercent):
+        randomTenPercent = random.sample(range(1,popSize), int(tenPercent)) #a list of random numbers
+        print "rand ten percent: " + str(randomTenPercent)
+        fitnessScores = []
+        counter = 0
+        for i in range(0, len(randomTenPercent)):
+          #f = fitness(pop[i])
+          #fitnessScores.append((pop[i], f))
+          fitnessScores.append((fitnessLst[i][0],fitnessLst[i][1]))
+          counter = counter + 1
+          print "counter = " + str(counter)
+        sortedFitness = sorted(fitnessScores, key=lambda x:x[1])
+        print "Sorted fitness scores: "
+        print sortedFitness
+        w1 = sortedFitness[-1][0]
+        w1score = sortedFitness[-1][1]
+        w2 = sortedFitness[-2][0]
+        w2score = sortedFitness[-2][1]
+        new_offspring = crossover(w1, w1score, w2, w2score)
+        mut_offspring = mutate(new_offspring) #need to double check if this works
+        offspring.append(mut_offspring)
+    print " final offspring : "
+    print offspring
+    return offspring
+
+def normalize (v):
+    mag = 0.0
+    for i in range(0, len(v)):
+        mag = mag + v[i]**2
+    mag = math.sqrt(mag)
+    for i in range(0, len(v)):
+        if mag == 0:
+            v[i] = 0.0
+        else:
+            v[i] = v[i]/mag
+    return v
+
+def crossover(w1, w1score, w2, w2score):
+  offspring = w1 * w1score + w2 * w2score #a vector
+  print "non normalized offspring: "
+  print offspring
+  norm_offspring = normalize(offspring)
+  print "normalized: "
+  print norm_offspring
+  return norm_offspring
+
+def mutate (offspring):
+    rint = random.randint(1,100) #5% chance of mutating
+    if rint <=5 : #mutate!
+        rint2 = random.randint(0,3) #select random weight to mutate
+        if 0 % 2 == 0: #randomly select if should add or subtract
+            offspring[rint2] = offspring[rint2] + 0.2
+        else:
+            offspring[rint2] = offspring[rint2] - 0.2
+        offspring = normalize(offspring) #normalize
+    else: #don't mutate
+        offspring
+    return offspring
+
+def new_generation(pop, fitnessLst, offspring):
+    popSize = len(pop) #number of weight vectors
+    thirtyPercent = round(popSize*0.3,0)
+    sortedFitness = sorted(fitnessLst, key=lambda x:x[1])
+    weakestThirtyP = sortedFitness[:int(thirtyPercent)]
+    print weakestThirtyP
+    for w in range(0,len(pop)): #delete the weakest thirty percent from pop
+        for tup in weakestThirtyP:
+            print tup
+            print pop
+            print pop[w]
+            if (pop[:,w] == tup[0]).all():
+                pop = np.delete(pop, w, 0)
+    new_gen = np.concatenate((pop,offspring), axis = 0)
+    print new_gen
+    return new_gen
+
+
+def main():
+    fitnessLst = []
+    pop = makePopulation(18)
+    print "POP: "
+    print pop
+    for i in range(0,len(pop)):
+        print "vector: "
+        print pop[i]
+        fscore = fitness(pop[i])
+        fitnessLst.append((pop[i], fscore))
+    print fitnessLst
+    offspring = tournamentSelection(pop, fitnessLst)
+    new_generation(pop, fitnessLst, offspring)
+
+
+
+
 
 
 if __name__ == '__main__':
+    wv = np.ones([4])
+    wv[0] = -0.510066
+    wv[1] =  0.760666
+    wv[2] =  0
+    wv[3] =  0
+    #fitness(wv)
+    #pop = makePopulation(20)
+    #print "POP:"
+    #print pop
+    #tournamentSelection(pop)
+    #w1 = np.array([ 0.39217715,  0.55730712,  0.25160626, -0.46359303])
+    #w2 = np.array([ 0.10418231, -0.06398574, -0.18539031, -0.80764434])
+    #crossover(w1, 0,w2, 14)
     main()
