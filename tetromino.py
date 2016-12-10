@@ -1,6 +1,10 @@
 # Rohit Bakshi (rhb255) and Minae Kwon
+# Tetromino (a Tetris clone)
+# By Al Sweigart al@inventwithpython.com
+# http://inventwithpython.com/pygame
+# Released under a "Simplified BSD" license
 
-import random, time, pygame, sys
+import random, time, pygame, sys, copy
 from pygame.locals import *
 
 FPS = 25
@@ -29,13 +33,19 @@ BLUE        = (  0,   0, 155)
 LIGHTBLUE   = ( 20,  20, 175)
 YELLOW      = (155, 155,   0)
 LIGHTYELLOW = (175, 175,  20)
+PURPLE      = (75,    0, 130)
+LIGHTPURPLE = (147, 112, 219)
+ORANGE      = (255, 140,   0)
+LIGHTORANGE = (255, 165,   0)
+BROWN       = (139,  69,  19)
+LIGHTBROWN  = (160,  82,  45)
 
 BORDERCOLOR = BLUE
 BGCOLOR = BLACK
 TEXTCOLOR = WHITE
 TEXTSHADOWCOLOR = GRAY
-COLORS      = (     BLUE,      GREEN,      RED,      YELLOW)
-LIGHTCOLORS = (LIGHTBLUE, LIGHTGREEN, LIGHTRED, LIGHTYELLOW)
+COLORS      = (     BLUE,      GREEN,      RED,      YELLOW, PURPLE, ORANGE, BROWN)
+LIGHTCOLORS = (LIGHTBLUE, LIGHTGREEN, LIGHTRED, LIGHTYELLOW, LIGHTPURPLE, LIGHTORANGE, LIGHTBROWN)
 assert len(COLORS) == len(LIGHTCOLORS) # each color must have light color
 
 TEMPLATEWIDTH = 5
@@ -151,6 +161,14 @@ PIECES = {'S': S_SHAPE_TEMPLATE,
           'O': O_SHAPE_TEMPLATE,
           'T': T_SHAPE_TEMPLATE}
 
+BLOCK_COLORS = {'S': 0,
+                'Z': 1,
+                'J': 2,
+                'L': 3,
+                'I': 4,
+                'O': 5,
+                'T': 6}
+
 
 def main():
     global FPSCLOCK, DISPLAYSURF, BASICFONT, BIGFONT
@@ -163,15 +181,16 @@ def main():
 
     showTextScreen('Tetromino')
     while True: # game loop
-        # if random.randint(0, 1) == 0:
-        #     pygame.mixer.music.load('tetrisb.mid')
-        # else:
-        #     pygame.mixer.music.load('tetrisc.mid')
-        # pygame.mixer.music.play(-1, 0.0)
         runGame()
-        # pygame.mixer.music.stop()
         showTextScreen('Game Over')
 
+
+def printBoard(board):
+    for i in range(BOARDHEIGHT):
+        row = []
+        for j in range (BOARDWIDTH):
+            row.append(board[j][i])
+        print('\t'.join(map(str,row)))
 
 def runGame():
     # setup variables for the start of the game
@@ -193,97 +212,25 @@ def runGame():
             # No falling piece in play, so start a new piece at the top
             fallingPiece = nextPiece
             nextPiece = getNewPiece()
-            lastFallTime = time.time() # reset lastFallTime
 
             if not isValidPosition(board, fallingPiece):
                 return # can't fit a new piece on the board, so game over
 
         checkForQuit()
-        for event in pygame.event.get(): # event handling loop
-            if event.type == KEYUP:
-                if (event.key == K_p):  #PAUSE KEY IS P
-                    # Pausing the game
-                    DISPLAYSURF.fill(BGCOLOR)
-                    #pygame.mixer.music.stop()
-                    showTextScreen('Paused') # pause until a key press
-                    #pygame.mixer.music.play(-1, 0.0)
-                    lastFallTime = time.time()
-                    lastMoveDownTime = time.time()
-                    lastMoveSidewaysTime = time.time()
-                elif (event.key == K_LEFT or event.key == K_a):
-                    movingLeft = False
-                elif (event.key == K_RIGHT or event.key == K_d):
-                    movingRight = False
-                elif (event.key == K_DOWN or event.key == K_s):
-                    movingDown = False
+        boardList = generateBoardPositions(board, fallingPiece)
 
-            elif event.type == KEYDOWN:
-                # moving the piece sideways
-                if (event.key == K_LEFT or event.key == K_a) and isValidPosition(board, fallingPiece, adjX=-1):
-                    fallingPiece['x'] -= 1
-                    movingLeft = True
-                    movingRight = False
-                    lastMoveSidewaysTime = time.time()
+        bestMove = None
+        bestValue = -float("inf")
+        for x in boardList:
+            currentValue = evaluateBoard(x, -0.510066, 0.760666, -0.35663, -0.184483)
+            if currentValue > bestValue:
+                bestValue =  currentValue
+                bestMove = x
 
-                elif (event.key == K_RIGHT or event.key == K_d) and isValidPosition(board, fallingPiece, adjX=1):
-                    fallingPiece['x'] += 1
-                    movingRight = True
-                    movingLeft = False
-                    lastMoveSidewaysTime = time.time()
-
-                # rotating the piece (if there is room to rotate)
-                elif (event.key == K_UP or event.key == K_w):
-                    fallingPiece['rotation'] = (fallingPiece['rotation'] + 1) % len(PIECES[fallingPiece['shape']])
-                    if not isValidPosition(board, fallingPiece):
-                        fallingPiece['rotation'] = (fallingPiece['rotation'] - 1) % len(PIECES[fallingPiece['shape']])
-                elif (event.key == K_q): # rotate the other direction
-                    fallingPiece['rotation'] = (fallingPiece['rotation'] - 1) % len(PIECES[fallingPiece['shape']])
-                    if not isValidPosition(board, fallingPiece):
-                        fallingPiece['rotation'] = (fallingPiece['rotation'] + 1) % len(PIECES[fallingPiece['shape']])
-
-                # making the piece fall faster with the down key
-                elif (event.key == K_DOWN or event.key == K_s):
-                    movingDown = True
-                    if isValidPosition(board, fallingPiece, adjY=1):
-                        fallingPiece['y'] += 1
-                    lastMoveDownTime = time.time()
-
-                # move the current piece all the way down
-                elif event.key == K_SPACE:
-                    movingDown = False
-                    movingLeft = False
-                    movingRight = False
-                    for i in range(1, BOARDHEIGHT):
-                        if not isValidPosition(board, fallingPiece, adjY=i):
-                            break
-                    fallingPiece['y'] += i - 1
-
-        # handle moving the piece because of user input
-        if (movingLeft or movingRight) and time.time() - lastMoveSidewaysTime > MOVESIDEWAYSFREQ:
-            if movingLeft and isValidPosition(board, fallingPiece, adjX=-1):
-                fallingPiece['x'] -= 1
-            elif movingRight and isValidPosition(board, fallingPiece, adjX=1):
-                fallingPiece['x'] += 1
-            lastMoveSidewaysTime = time.time()
-
-        if movingDown and time.time() - lastMoveDownTime > MOVEDOWNFREQ and isValidPosition(board, fallingPiece, adjY=1):
-            fallingPiece['y'] += 1
-            lastMoveDownTime = time.time()
-
-        # let the piece fall if it is time to fall
-        if time.time() - lastFallTime > fallFreq:
-            # see if the piece has landed
-            if not isValidPosition(board, fallingPiece, adjY=1):
-                # falling piece has landed, set it on the board
-                addToBoard(board, fallingPiece)
-                #print calculateCompleteLines(board)    
-                score += removeCompleteLines(board)
-                level, fallFreq = calculateLevelAndFallFreq(score)
-                fallingPiece = None
-            else:
-                # piece did not land, just move the piece down
-                fallingPiece['y'] += 1
-                lastFallTime = time.time()
+        board = bestMove
+        score += removeCompleteLines(board)
+        level, fallFreq = calculateLevelAndFallFreq(score)
+        fallingPiece = None
 
         # drawing everything on the screen
         DISPLAYSURF.fill(BGCOLOR)
@@ -295,10 +242,6 @@ def runGame():
 
         pygame.display.update()
         FPSCLOCK.tick(FPS)
-        #print board
-        #print calculateAggregateHeight(board)
-        #print calculateHoles(board)
-        print calculateBumpiness(board)
 
 def makeTextObjs(text, font, color):
     surf = font.render(text, True, color)
@@ -361,6 +304,7 @@ def calculateLevelAndFallFreq(score):
     fallFreq = 0.27 - (level * 0.02)
     return level, fallFreq
 
+
 def getNewPiece():
     # return a random new piece in a random rotation and color
     shape = random.choice(list(PIECES.keys()))
@@ -368,7 +312,7 @@ def getNewPiece():
                 'rotation': random.randint(0, len(PIECES[shape]) - 1),
                 'x': int(BOARDWIDTH / 2) - int(TEMPLATEWIDTH / 2),
                 'y': -2, # start it above the board (i.e. less than 0)
-                'color': random.randint(0, len(COLORS)-1)}
+                'color': BLOCK_COLORS[shape]}
     return newPiece
 
 
@@ -378,6 +322,9 @@ def addToBoard(board, piece):
         for y in range(TEMPLATEHEIGHT):
             if PIECES[piece['shape']][piece['rotation']][y][x] != BLANK:
                 board[x + piece['x']][y + piece['y']] = piece['color']
+                if x + piece['x'] < 0 or y + piece['y'] < 0: 
+                    return False
+    return True
 
 
 def getBlankBoard():
@@ -385,7 +332,6 @@ def getBlankBoard():
     board = []
     for i in range(BOARDWIDTH):
         board.append([BLANK] * BOARDHEIGHT)
-    #print board
     return board
 
 
@@ -503,8 +449,12 @@ def drawNextPiece(piece):
     # draw the "next" piece
     drawPiece(piece, pixelx=WINDOWWIDTH-120, pixely=100)
 
-#-------------------------AI Functions---------------------------------------------------------------------------------------------------------
 
+#--------------------------------------AI Functions------------------------------------------------------------------
+def evaluateBoard(board, a, b, c, d):
+    return a*calculateAggregateHeight(board) + b*calculateCompleteLines(board) + c*calculateHoles(board) + d*calculateBumpiness(board)
+
+#https://codemyroad.wordpress.com/2013/04/14/tetris-ai-the-near-perfect-player/
 def calculateAggregateHeight(board):
     totalHeight = 0
     for x in range(BOARDWIDTH):
@@ -553,10 +503,87 @@ def calculateBumpiness(board):
         temp = abs(heightList[z] - heightList[z+1])
         bumpiness += temp
     return bumpiness
-    
 
-def generateBoardPositions():
-    pass
+#https://luckytoilet.wordpress.com/2011/05/27/coding-a-tetris-ai-using-a-genetic-algorithm/
+def calculateBlockades(board):
+    totalBlockades = 0
+    for x in range(BOARDWIDTH):
+        column = board[x]
+        temp = 0
+        firstblock = False
+        emptyblock = False
+        for y in range(len(column)):
+            if(column[y] != '.'):
+                firstblock = True
+            if(firstblock and column[y] == '.'):
+                temp+=1
+                emptyblock = True
+            if(firstblock and emptyblock and column[y] == '.'):
+                emptyblock = True
+            if(firstblock and emptyblock and column[y] != '.'):
+                temp+=1
+                emptyblock = False
+        totalBlockades += temp
+    return totalBlockades
+
+# true if the piece is within the board
+def withinBoard(currentPiece, adjX=0, adjY=0):
+    for x in range(TEMPLATEWIDTH):
+        for y in range(TEMPLATEHEIGHT):
+            notOnBoard = y + currentPiece['y'] + adjY < 0
+            if notOnBoard or PIECES[currentPiece['shape']][currentPiece['rotation']][y][x] == BLANK:
+                continue
+            if not isOnBoard(x + currentPiece['x'] + adjX, y + currentPiece['y'] + adjY):
+                return False
+    return True
+
+def positionPiece(board, currentPiece):
+        i = 1
+        while isValidPosition(board, currentPiece, adjY=i):
+            i+=1
+        currentPiece['y'] += i-1
+
+#
+def generateBoardPositions(board, currentPiece):
+
+    boardList = []
+
+    numberRotations = len(PIECES[currentPiece['shape']])
+    currentRotatedPiece = copy.copy(currentPiece)
+
+    for i in range(numberRotations):
+        currentRotatedPiece['rotation'] = (currentRotatedPiece['rotation'] + 1) % len(PIECES[currentRotatedPiece['shape']])
+
+        xshiftAmount = 0
+        while True:
+            if not withinBoard(currentRotatedPiece, adjX = xshiftAmount) and xshiftAmount > 0:
+                break
+            currentPieceShift = copy.deepcopy(currentRotatedPiece)
+            currentPieceShift['x'] += xshiftAmount
+            if isValidPosition(board, currentPieceShift):
+                positionPiece(board, currentPieceShift)
+
+                currBoard = copy.deepcopy(board)
+                if addToBoard(currBoard, currentPieceShift):
+                    boardList.append(currBoard)
+            # left first
+            if xshiftAmount <= 0:
+                xshiftAmount -= 1
+            else:
+                xshiftAmount += 1
+
+            if not withinBoard(currentRotatedPiece, adjX = xshiftAmount) and xshiftAmount <= 0:
+                xshiftAmount = 1
+
+    return boardList
+
+def printBoard(board):
+    for i in range(BOARDHEIGHT):
+        row = []
+        for j in range (BOARDWIDTH):
+            row.append(board[j][i])
+
+        print('\t'.join(map(str,row)))
 
 if __name__ == '__main__':
     main()
